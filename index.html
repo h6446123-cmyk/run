@@ -120,12 +120,25 @@
   }
 
   function recordPlayOnce() {
-    if (playCounted) return;
-    playCounted = true;
-    // GET なのでプリフライトが起きにくい
-    fetch(`${WORKER_URL}/play?sid=${encodeURIComponent(playSid)}`, { keepalive: true })
-      .catch(()=>{});
-  }
+  if (playCounted) return;
+  playCounted = true;
+
+  fetch(`${WORKER_URL}/play?sid=${encodeURIComponent(playSid)}`, {
+    keepalive: true,
+    cache: "no-store",
+    mode: "cors",
+  })
+    .then(async (r) => {
+      const j = await r.json().catch(() => null);
+      if (!r.ok || !j) throw new Error("bad response");
+      stateEl.textContent = `PLAYS: ${j.plays} (sid: ${playSid.slice(0,8)})`;
+    })
+    .catch(() => {
+      stateEl.textContent = `PLAY COUNT FAIL (sid: ${playSid.slice(0,8)})`;
+      // 失敗しても次のタップで再送できるように戻す
+      playCounted = false;
+    });
+}
 
   // ===== Canvas setup (retina対応) =====
   const canvas = document.getElementById("c");
@@ -643,4 +656,5 @@
 </script>
 </body>
 </html>
+
 
