@@ -95,6 +95,38 @@
 
 <script>
 (() => {
+  // ================================
+  // ★ プレイ回数カウント（/play）
+  // ================================
+  const WORKER_URL = "https://cool-bush-95d1.h6446123.workers.dev";
+
+  function uuid() {
+    // crypto.randomUUID() が無い端末向けフォールバック
+    if (crypto && crypto.randomUUID) return crypto.randomUUID();
+    const a = new Uint8Array(16);
+    (crypto && crypto.getRandomValues ? crypto.getRandomValues(a) : a.forEach((_,i)=>a[i]=Math.random()*256|0));
+    a[6] = (a[6] & 0x0f) | 0x40;
+    a[8] = (a[8] & 0x3f) | 0x80;
+    const hex = [...a].map(b => b.toString(16).padStart(2,"0")).join("");
+    return `${hex.slice(0,8)}-${hex.slice(8,12)}-${hex.slice(12,16)}-${hex.slice(16,20)}-${hex.slice(20)}`;
+  }
+
+  let playSid = uuid();
+  let playCounted = false;
+
+  function newPlaySession() {
+    playSid = uuid();
+    playCounted = false;
+  }
+
+  function recordPlayOnce() {
+    if (playCounted) return;
+    playCounted = true;
+    // GET なのでプリフライトが起きにくい
+    fetch(`${WORKER_URL}/play?sid=${encodeURIComponent(playSid)}`, { keepalive: true })
+      .catch(()=>{});
+  }
+
   // ===== Canvas setup (retina対応) =====
   const canvas = document.getElementById("c");
   const ctx = canvas.getContext("2d", { alpha: false });
@@ -128,7 +160,7 @@
   const audio = {
     ctx: null,
     master: null,
-    bgmOn: true,      // ←最初からON（ユーザー操作で開始する）
+    bgmOn: true,
     started: false,
     tempo: 120,
     step: 0,
@@ -137,7 +169,6 @@
   };
 
   function ensureAudioAndResume() {
-    // 重要: ここは「ユーザーの操作イベント中」に同期的に呼ぶ
     if (!audio.started) {
       const AC = window.AudioContext || window.webkitAudioContext;
       if (!AC) return;
@@ -167,7 +198,7 @@
       while (audio.nextTime < audio.ctx.currentTime + lookAhead) {
         scheduleBgmStep(audio.nextTime, audio.step);
         const beat = 60 / audio.tempo;
-        const stepDur = beat * 0.5; // 8分
+        const stepDur = beat * 0.5;
         audio.nextTime += stepDur;
         audio.step++;
       }
@@ -194,7 +225,7 @@
   }
 
   function scheduleBgmStep(time, step) {
-    const base = 57; // A3
+    const base = 57;
     const scale = [0, 2, 4, 7, 9, 12, 14, 16];
     const chord = [0, 7, 12];
     const idx = step % 16;
@@ -274,8 +305,8 @@
   };
 
   // Obstacles & coins
-  const obstacles = []; // {x,y,w,h,type,passed}
-  const coins = [];     // {x,y,r}
+  const obstacles = [];
+  const coins = [];
 
   function rand(a,b){ return a + Math.random()*(b-a); }
   function groundY(){ return innerHeight - GROUND_H; }
@@ -283,6 +314,9 @@
   function showPanel(v) { panel.style.display = v ? "block" : "none"; }
 
   function reset() {
+    // ★ 新しいプレイとして数える準備（まだ送信しない）
+    newPlaySession();
+
     score = 0;
     coinCount = 0;
     dist = 0;
@@ -325,7 +359,6 @@
 
     obstacles.push({ x, y, w, h, type, passed: false });
 
-    // coin chance
     if (Math.random() < 0.75) spawnCoinsNear(x);
   }
 
@@ -362,6 +395,9 @@
       running = true;
       showPanel(false);
       stateEl.textContent = "";
+
+      // ★ ここで「プレイ開始」を1回だけ送信
+      recordPlayOnce();
     }
     if (gameOver) {
       reset();
@@ -373,7 +409,7 @@
 
   function onDown(e) {
     e.preventDefault();
-    ensureAudioAndResume();     // ←最初のタップで音を確実に解放
+    ensureAudioAndResume();
     holding = true;
     requestJump();
   }
@@ -382,14 +418,12 @@
     holding = false;
   }
 
-  // iPhone対策: pointer/touch 両方
   canvas.addEventListener("pointerdown", onDown, { passive: false });
   canvas.addEventListener("pointerup", onUp, { passive: false });
   canvas.addEventListener("pointercancel", onUp, { passive: false });
   canvas.addEventListener("touchstart", onDown, { passive: false });
   canvas.addEventListener("touchend", onUp, { passive: false });
 
-  // PC用
   addEventListener("keydown", (e) => {
     if (e.code === "Space" || e.code === "ArrowUp") {
       e.preventDefault();
@@ -430,7 +464,6 @@
       player.onGround = false;
     }
 
-    // jump buffer / double jump
     if (player.jumpBuffer > 0) {
       if (player.onGround || player.coyote > 0) {
         doJump(false);
@@ -441,16 +474,13 @@
       }
     }
 
-    // physics
     const gMul = (holding && player.vy < 0) ? HOLD_GRAVITY_MUL : 1.0;
     player.vy += G * gMul * dt;
     player.y  += player.vy * dt;
 
-    // move world
     const dx = speed * dt;
     dist += dx;
 
-    // obstacles
     for (const ob of obstacles) {
       ob.x -= dx;
 
@@ -466,7 +496,6 @@
       }
     }
 
-    // coins (取った瞬間に消す: splice)
     const px = player.x + player.w * 0.5;
     const py = player.y + player.h * 0.5;
     const pr = Math.min(player.w, player.h) * 0.28;
@@ -479,7 +508,7 @@
       const dyp = (c.y - py);
       const rr = (c.r + pr);
       if (dxp*dxp + dyp*dyp <= rr*rr) {
-        coins.splice(i, 1);      // ←即消える
+        coins.splice(i, 1);
         coinCount += 1;
         score += 5;
         coinsEl.textContent = "COINS: " + coinCount;
@@ -488,7 +517,6 @@
       }
     }
 
-    // cleanup
     while (obstacles.length && obstacles[0].x + obstacles[0].w < -120) obstacles.shift();
     while (coins.length && coins[0].x + coins[0].r < -120) coins.shift();
 
@@ -520,7 +548,6 @@
     ctx.fillStyle = "#0b0f1a";
     ctx.fillRect(0,0,w,h);
 
-    // stars
     ctx.fillStyle = "#ffffff";
     const starCount = 70;
     const t = performance.now() * 0.00005;
@@ -533,13 +560,11 @@
     }
     ctx.globalAlpha = 1;
 
-    // ground
     ctx.fillStyle = "#101a33";
     ctx.fillRect(0, gy, w, h-gy);
     ctx.fillStyle = "rgba(255,255,255,.08)";
     ctx.fillRect(0, gy, w, 2);
 
-    // coins
     for (const c of coins) {
       ctx.globalAlpha = 0.9;
       ctx.fillStyle = "rgba(255,215,64,.20)";
@@ -559,7 +584,6 @@
       ctx.globalAlpha = 1;
     }
 
-    // obstacles
     for (const ob of obstacles) {
       ctx.fillStyle = "rgba(90,170,255,.18)";
       ctx.fillRect(ob.x-3, ob.y-3, ob.w+6, ob.h+6);
@@ -569,7 +593,6 @@
       ctx.fillRect(ob.x+3, ob.y+3, Math.max(0, ob.w-6), 6);
     }
 
-    // player
     ctx.fillStyle = "rgba(255,255,255,.16)";
     ctx.fillRect(player.x-3, player.y-3, player.w+6, player.h+6);
 
