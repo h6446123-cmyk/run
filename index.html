@@ -390,22 +390,37 @@
 
   // ===== Input =====
   function requestJump() {
-    if (!started) {
-      started = true;
-      running = true;
-      showPanel(false);
-      stateEl.textContent = "";
+  // GAME OVER中のタップは「リセットして即スタート」にする（1タップで次プレイ開始）
+  if (gameOver) {
+    reset();
+    ensureObstacles();
 
-      // ★ ここで「プレイ開始」を1回だけ送信
-      recordPlayOnce();
-    }
-    if (gameOver) {
-      reset();
-      ensureObstacles();
-      return;
-    }
+    started = true;
+    running = true;
+    showPanel(false);
+    stateEl.textContent = "";
+
+    // ★ここで必ず次プレイの /play を1回だけ送る
+    recordPlayOnce();
+
     player.jumpBuffer = 0.12;
+    return;
   }
+
+  // 初回スタート
+  if (!started) {
+    started = true;
+    running = true;
+    showPanel(false);
+    stateEl.textContent = "";
+
+    // ★プレイ開始を1回だけ送る
+    recordPlayOnce();
+  }
+
+  player.jumpBuffer = 0.12;
+}
+
 
   function onDown(e) {
     e.preventDefault();
@@ -628,3 +643,4 @@
 </script>
 </body>
 </html>
+
